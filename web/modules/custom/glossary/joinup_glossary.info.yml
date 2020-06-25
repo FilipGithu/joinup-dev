@@ -1,0 +1,5 @@
+name: 'Joinup Glossary'
+type: module
+description: 'Provides glossary functionality for communities.'
+core_version_requirement: ^8 || ^9
+package: Joinup

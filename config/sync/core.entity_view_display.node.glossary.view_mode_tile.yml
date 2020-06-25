@@ -1,0 +1,43 @@
+uuid: 852ed1c6-da43-493e-908f-2ab357d4cbc5
+langcode: en
+status: true
+dependencies:
+  config:
+    - core.entity_view_mode.node.view_mode_tile
+    - field.field.node.glossary.field_glossary_abbreviation
+    - field.field.node.glossary.field_glossary_definition
+    - field.field.node.glossary.og_audience
+    - node.type.glossary
+  module:
+    - template_suggestion
+    - text
+    - user
+id: node.glossary.view_mode_tile
+targetEntityType: node
+bundle: glossary
+mode: view_mode_tile
+content:
+  field_glossary_abbreviation:
+    weight: 0
+    label: hidden
+    settings:
+      link_to_entity: false
+    third_party_settings: {  }
+    type: string
+    region: content
+  field_glossary_definition:
+    weight: 1
+    label: hidden
+    settings:
+      trim_length: 600
+    third_party_settings:
+      template_suggestion:
+        template_suggestion: ''
+    type: text_summary_or_trimmed
+    region: content
+hidden:
+  langcode: true
+  links: true
+  og_audience: true
+  published_at: true
+  report: true

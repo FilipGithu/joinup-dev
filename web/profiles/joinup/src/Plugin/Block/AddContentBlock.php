@@ -6,9 +6,11 @@ namespace Drupal\joinup\Plugin\Block;
 
 use Drupal\Core\Block\BlockBase;
 use Drupal\Core\Cache\Cache;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Plugin\Context\ContextProviderInterface;
 use Drupal\Core\Url;
+use Drupal\rdf_entity\RdfInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -25,18 +27,18 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 class AddContentBlock extends BlockBase implements ContainerFactoryPluginInterface {
 
   /**
-   * The solution route context service.
-   *
-   * @var \Drupal\Core\Plugin\Context\ContextProviderInterface
-   */
-  protected $solutionContext;
-
-  /**
    * The asset release route context service.
    *
    * @var \Drupal\Core\Plugin\Context\ContextProviderInterface
    */
   protected $assetReleaseContext;
+
+  /**
+   * The entity type manager service.
+   *
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   */
+  protected $entityTypeManager;
 
   /**
    * Constructs a AddContentBlock object.
@@ -49,10 +51,13 @@ class AddContentBlock extends BlockBase implements ContainerFactoryPluginInterfa
    *   The plugin implementation definition.
    * @param \Drupal\Core\Plugin\Context\ContextProviderInterface $asset_release_context
    *   The asset release route context service.
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
+   *   The entity type manager service.
    */
-  public function __construct(array $configuration, $plugin_id, $plugin_definition, ContextProviderInterface $asset_release_context) {
+  public function __construct(array $configuration, $plugin_id, $plugin_definition, ContextProviderInterface $asset_release_context, EntityTypeManagerInterface $entity_type_manager) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->assetReleaseContext = $asset_release_context;
+    $this->entityTypeManager = $entity_type_manager;
   }
 
   /**
@@ -61,7 +66,8 @@ class AddContentBlock extends BlockBase implements ContainerFactoryPluginInterfa
   public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition) {
     return new static(
       $configuration, $plugin_id, $plugin_definition,
-      $container->get('asset_release.asset_release_route_context')
+      $container->get('asset_release.asset_release_route_context'),
+      $container->get('entity_type.manager')
     );
   }
 
@@ -77,15 +83,7 @@ class AddContentBlock extends BlockBase implements ContainerFactoryPluginInterfa
     $route_parameters = ['rdf_entity' => $group->id()];
 
     // Add a link to add a custom page.
-    $page_url = Url::fromRoute('custom_page.group_custom_page.add', $route_parameters);
-    if ($page_url->access()) {
-      $links['custom_page'] = [
-        '#type' => 'link',
-        '#title' => $this->t('Add custom page'),
-        '#url' => $page_url,
-        '#attributes' => ['class' => ['circle-menu__link']],
-      ];
-    }
+    $this->addGroupNodeLink($links, $group, 'custom_page');
 
     if ($group_type === 'collection') {
       $solution_url = Url::fromRoute('solution.collection_solution.add', $route_parameters);
@@ -123,48 +121,13 @@ class AddContentBlock extends BlockBase implements ContainerFactoryPluginInterfa
     }
 
     // 'Add news' link.
-    $news_url = Url::fromRoute('joinup_news.rdf_entity_news.add', $route_parameters);
-    if ($news_url->access()) {
-      $links['news'] = [
-        '#type' => 'link',
-        '#title' => $this->t('Add news'),
-        '#url' => $news_url,
-        '#attributes' => ['class' => ['circle-menu__link']],
-      ];
-    }
-
+    $this->addGroupNodeLink($links, $group, 'news');
     // 'Add discussion' link.
-    $discussion_url = Url::fromRoute('joinup_discussion.rdf_entity_discussion.add', $route_parameters);
-    if ($discussion_url->access()) {
-      $links['discussion'] = [
-        '#type' => 'link',
-        '#title' => $this->t('Add discussion'),
-        '#url' => $discussion_url,
-        '#attributes' => ['class' => ['circle-menu__link']],
-      ];
-    }
-
+    $this->addGroupNodeLink($links, $group, 'discussion');
     // 'Add document' link.
-    $document_url = Url::fromRoute('joinup_document.rdf_entity_document.add', $route_parameters);
-    if ($document_url->access()) {
-      $links['document'] = [
-        '#type' => 'link',
-        '#title' => $this->t('Add document'),
-        '#url' => $document_url,
-        '#attributes' => ['class' => ['circle-menu__link']],
-      ];
-    }
-
+    $this->addGroupNodeLink($links, $group, 'document');
     // 'Add event' link.
-    $event_url = Url::fromRoute('joinup_event.rdf_entity_event.add', $route_parameters);
-    if ($event_url->access()) {
-      $links['event'] = [
-        '#type' => 'link',
-        '#title' => $this->t('Add event'),
-        '#url' => $event_url,
-        '#attributes' => ['class' => ['circle-menu__link']],
-      ];
-    }
+    $this->addGroupNodeLink($links, $group, 'event');
 
     if (!empty($this->assetReleaseContext)) {
       /** @var \Drupal\Core\Plugin\Context\Context[] $asset_release_contexts */
@@ -191,6 +154,10 @@ class AddContentBlock extends BlockBase implements ContainerFactoryPluginInterfa
         '#url' => $licence_url,
       ];
     }
+
+    // 'Add glossary term' link.
+    $this->addGroupNodeLink($links, $group, 'glossary');
+
     if (empty($links)) {
       return [];
     }
@@ -244,6 +211,40 @@ class AddContentBlock extends BlockBase implements ContainerFactoryPluginInterfa
       // We vary by user role since a moderator has the ability to add licenses.
       'user.roles',
     ]);
+  }
+
+  /**
+   * Adds a link for group node content.
+   *
+   * @param array $links
+   *   The list of links to be uodated.
+   * @param \Drupal\rdf_entity\RdfInterface $group
+   *   The group entity.
+   * @param string $node_type_id
+   *   The node type ID.
+   *
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   *   Thrown when the user entity plugin definition is invalid.
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   *   Thrown when the user entity type is not defined.
+   */
+  protected function addGroupNodeLink(array &$links, RdfInterface $group, string $node_type_id): void {
+    $route_parameters = [
+      'rdf_entity' => $group->id(),
+      'node_type' => $node_type_id,
+    ];
+
+    $page_url = Url::fromRoute('joinup_group.add_content', $route_parameters);
+    if ($page_url->access()) {
+      /** @var \Drupal\node\NodeTypeInterface $node_type */
+      $node_type = $this->entityTypeManager->getStorage('node_type')->load($node_type_id);
+      $links[$node_type_id] = [
+        '#type' => 'link',
+        '#title' => $this->t('Add @label', ['@label' => $node_type->getSingularLabel()]),
+        '#url' => $page_url,
+        '#attributes' => ['class' => ['circle-menu__link']],
+      ];
+    }
   }
 
 }
